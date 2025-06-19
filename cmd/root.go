@@ -1,21 +1,18 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
-var logLevel string
-
-func parseLogLevel(logLevel string) zerolog.Level {
-	switch logLevel {
+func parseLogLevel(level string) zerolog.Level {
+	switch strings.ToLower(level) {
 	case "trace":
 		return zerolog.TraceLevel
 	case "debug":
@@ -35,7 +32,8 @@ func configureLogger(level zerolog.Level) {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	zerolog.SetGlobalLevel(level)
 
-	if level == zerolog.TraceLevel {
+	switch level {
+	case zerolog.TraceLevel:
 		zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
 			return fmt.Sprintf("%s:%d", file, line)
 		}
@@ -46,13 +44,13 @@ func configureLogger(level zerolog.Level) {
 			Out:        os.Stderr,
 			TimeFormat: "2006-01-02 15:04:05.000",
 		})
-	} else if level == zerolog.DebugLevel {
+	case zerolog.DebugLevel:
 		zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
 			return fmt.Sprintf("%s:%d", file, line)
 		}
 		zerolog.CallerFieldName = "caller"
 		log.Logger = log.Logger.With().Caller().Logger()
-	} else {
+	default:
 		log.Logger = log.Output(os.Stderr)
 	}
 }
@@ -70,7 +68,8 @@ to quickly create a Cobra application.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	Run: func(cmd *cobra.Command, args []string) {
-		configureLogger(parseLogLevel(logLevel))
+		logLevel := parseLogLevel(viper.GetString("log.level"))
+		configureLogger(logLevel)
 
 		fmt.Println("Log level is set to:", logLevel)
 		log.Trace().Msg("This is a trace log")
@@ -91,9 +90,23 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "Set log level: trace, info, warn, error")
+	cobra.OnInitialize(initConfig)
+	pf := rootCmd.PersistentFlags()
+
+	pf.String("log-level", "info", "Set log level: trace, info, warn, error")
+	viper.BindPFlag("log.level", pf.Lookup("log-level"))
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+}
+
+func initConfig() {
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv()
+
+	// If a config file is found, read it in.
+	if err := viper.ReadInConfig(); err == nil {
+		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
+	}
 }
