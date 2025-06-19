@@ -102,7 +102,7 @@ func init() {
 }
 
 func initConfig() {
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	viper.AutomaticEnv()
 
 	// If a config file is found, read it in.
