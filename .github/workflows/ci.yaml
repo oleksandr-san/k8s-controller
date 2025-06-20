@@ -69,7 +69,7 @@ jobs:
         run: docker push ghcr.io/${{ github.repository }}:${{ steps.vars.outputs.docker_tag }}
       - name: Package Helm chart
         run: |
-          helm package charts/app --version ${{ steps.vars.outputs.version }} --app-version ${{ steps.vars.outputs.app_version }}
+          helm package charts/k8s-controller --version ${{ steps.vars.outputs.version }} --app-version ${{ steps.vars.outputs.app_version }}
           mkdir -p chart-artifacts
           mv app-${{ steps.vars.outputs.version }}.tgz chart-artifacts/
       - name: Upload Helm chart artifact
