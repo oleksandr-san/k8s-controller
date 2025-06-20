@@ -71,7 +71,7 @@ jobs:
         run: |
           helm package charts/k8s-controller --version ${{ steps.vars.outputs.version }} --app-version ${{ steps.vars.outputs.app_version }}
           mkdir -p chart-artifacts
-          mv app-${{ steps.vars.outputs.version }}.tgz chart-artifacts/
+          mv k8s-controller-${{ steps.vars.outputs.version }}.tgz chart-artifacts/
       - name: Upload Helm chart artifact
         uses: actions/upload-artifact@v4
         with:
