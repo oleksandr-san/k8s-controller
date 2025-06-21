@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -67,7 +68,27 @@ var k8sListCmd = &cobra.Command{
 			fmt.Printf("Found %d %s in all namespaces:\n", len(resources.Items), gvr.Resource)
 		}
 
-		printr := printers.NewTypeSetter(scheme.Scheme).ToPrinter(&printers.NamePrinter{})
+		var printr printers.ResourcePrinter
+		outputFormat, _ := cmd.Flags().GetString("output")
+		switch strings.ToLower(outputFormat) {
+		case "json":
+			printr = printers.NewTypeSetter(scheme.Scheme).ToPrinter(&printers.JSONPrinter{})
+		case "yaml":
+			printr = printers.NewTypeSetter(scheme.Scheme).ToPrinter(&printers.YAMLPrinter{})
+		case "name":
+			printr = printers.NewTypeSetter(scheme.Scheme).ToPrinter(&printers.NamePrinter{})
+		case "table":
+			printr = printers.NewTablePrinter(printers.PrintOptions{
+				Wide:          true,
+				WithNamespace: true,
+				WithKind:      true,
+				ShowLabels:    true,
+			})
+		default:
+			log.Error().Msgf("Unknown output format: %s", outputFormat)
+			os.Exit(1)
+		}
+
 		for _, obj := range resources.Items {
 			printr.PrintObj(&obj, os.Stdout)
 		}
@@ -76,4 +97,7 @@ var k8sListCmd = &cobra.Command{
 
 func init() {
 	k8sAPICmd.AddCommand(k8sListCmd)
+
+	f := k8sListCmd.Flags()
+	f.StringP("output", "o", "name", "Output format. One of: json|yaml|name|table")
 }
