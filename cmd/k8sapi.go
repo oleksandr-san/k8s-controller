@@ -18,7 +18,7 @@ var k8sAPICmd = &cobra.Command{
 	Use:   "k8sapi",
 	Short: "Interact with Kubernetes API",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Error: must also specify a resource like birthday, appointment or event")
+		fmt.Println("Error: must also specify a command like list, create, delete, etc.")
 		os.Exit(1)
 	},
 }
