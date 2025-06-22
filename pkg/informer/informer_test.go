@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 
@@ -70,29 +71,46 @@ func TestStartDeploymentInformer(t *testing.T) {
 	//time.Sleep(5 * time.Minute)
 }
 
-func TestGetDeploymentName(t *testing.T) {
+func TestGetObjectName(t *testing.T) {
 	dep := &metav1.PartialObjectMetadata{}
 	dep.SetName("my-deployment")
-	name := getDeploymentName(dep)
+	name := getObjectName(dep)
 	if name != "my-deployment" {
 		t.Errorf("expected 'my-deployment', got %q", name)
 	}
-	name = getDeploymentName("not-an-object")
+	name = getObjectName("not-an-object")
 	if name != "unknown" {
 		t.Errorf("expected 'unknown', got %q", name)
 	}
 }
 
 func TestStartDeploymentInformer_CoversFunction(t *testing.T) {
-	_, clientset, cleanup := testutil.SetupEnv(t)
+	env, _, cleanup := testutil.SetupEnv(t)
 	defer cleanup()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	mi, err := NewMultiInformer(
+		env.Config,
+		30*time.Second,
+		[]schema.GroupVersionResource{
+			{
+				Group:    "apps",
+				Version:  "v1",
+				Resource: "deployments",
+			},
+		},
+		metav1.NamespaceAll,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// Run StartDeploymentInformer in a goroutine
 	go func() {
-		StartDeploymentInformer(ctx, clientset)
+		mi.Start(ctx)
 	}()
 
 	// Give the informer some time to start and process events

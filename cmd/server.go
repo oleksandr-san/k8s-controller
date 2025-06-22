@@ -12,7 +12,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/valyala/fasthttp"
-	"k8s.io/client-go/kubernetes"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -52,16 +53,34 @@ var serverCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		configureLogger(parseLogLevel(viper.GetString("log.level")))
 
-		clientset, err := getServerKubeClient(viper.GetString("kubeconfig"), viper.GetBool("in-cluster"))
+		config, err := getKubeConfig(viper.GetString("kubeconfig"), viper.GetBool("in-cluster"))
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to create Kubernetes client")
 			os.Exit(1)
 		}
+		multiInformer, err := informer.NewMultiInformer(
+			config,
+			30*time.Second,
+			[]schema.GroupVersionResource{
+				{
+					Group:    "apps",
+					Version:  "v1",
+					Resource: "deployments",
+				},
+			},
+			metav1.NamespaceAll,
+			nil,
+		)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to create informer")
+			os.Exit(1)
+		}
 		ctx := context.Background()
-		go informer.StartDeploymentInformer(ctx, clientset)
+		go multiInformer.Start(ctx)
 
 		handler := func(ctx *fasthttp.RequestCtx) {
 			ctx.SetStatusCode(fasthttp.StatusOK)
+			ctx.Path()
 			ctx.SetBodyString("Welcome to the FastHTTP server!")
 		}
 
@@ -89,7 +108,7 @@ func init() {
 	viper.BindPFlag("in-cluster", f.Lookup("in-cluster"))
 }
 
-func getServerKubeClient(kubeconfigPath string, inCluster bool) (*kubernetes.Clientset, error) {
+func getKubeConfig(kubeconfigPath string, inCluster bool) (*rest.Config, error) {
 	var config *rest.Config
 	var err error
 	if inCluster {
@@ -100,5 +119,5 @@ func getServerKubeClient(kubeconfigPath string, inCluster bool) (*kubernetes.Cli
 	if err != nil {
 		return nil, err
 	}
-	return kubernetes.NewForConfig(config)
+	return config, nil
 }

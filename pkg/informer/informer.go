@@ -2,54 +2,94 @@ package informer
 
 import (
 	"context"
-	"os"
 	"time"
 
 	"github.com/rs/zerolog/log"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/dynamic/dynamicinformer"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 )
 
-// StartDeploymentInformer starts a shared informer for Deployments in the default namespace.
-func StartDeploymentInformer(ctx context.Context, clientset *kubernetes.Clientset) {
-	factory := informers.NewSharedInformerFactoryWithOptions(
-		clientset,
-		30*time.Second,
-		informers.WithNamespace("default"),
-		informers.WithTweakListOptions(func(options *metav1.ListOptions) {
-			options.FieldSelector = fields.Everything().String()
-		}),
-	)
-	informer := factory.Apps().V1().Deployments().Informer()
+// MultiInformer watches an arbitrary list of resources and exposes
+// thread-safe getters backed by the informers' local caches.
+type MultiInformer struct {
+	factory   dynamicinformer.DynamicSharedInformerFactory
+	informers map[schema.GroupVersionResource]cache.SharedIndexInformer
+	synced    []cache.InformerSynced
+}
 
-	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+func NewMultiInformer(
+	cfg *rest.Config,
+	resync time.Duration,
+	gvrs []schema.GroupVersionResource,
+	namespace string,
+	tweak dynamicinformer.TweakListOptionsFunc,
+) (*MultiInformer, error) {
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(
+		dynamicClient,
+		resync,
+		namespace,
+		tweak,
+	)
+
+	mi := &MultiInformer{
+		factory:   factory,
+		informers: make(map[schema.GroupVersionResource]cache.SharedIndexInformer),
+	}
+
+	for _, gvr := range gvrs {
+		inf := factory.ForResource(gvr).Informer()
+		mi.informers[gvr] = inf
+		mi.synced = append(mi.synced, inf.HasSynced)
+	}
+
+	mi.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			log.Info().Msgf("Deployment added: %s", getDeploymentName(obj))
+			log.Info().Msgf("Object added: %s", getObjectName(obj))
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			log.Info().Msgf("Deployment updated: %s", getDeploymentName(newObj))
+			log.Info().Msgf("Object updated: %s", getObjectName(newObj))
 		},
 		DeleteFunc: func(obj interface{}) {
-			log.Info().Msgf("Deployment deleted: %s", getDeploymentName(obj))
+			log.Info().Msgf("Object deleted: %s", getObjectName(obj))
 		},
 	})
 
-	log.Info().Msg("Starting deployment informer...")
-	factory.Start(ctx.Done())
-	for t, ok := range factory.WaitForCacheSync(ctx.Done()) {
-		if !ok {
-			log.Error().Msgf("Failed to sync informer for %v", t)
-			os.Exit(1)
-		}
-	}
-	log.Info().Msg("Deployment informer cache synced. Watching for events...")
+	return mi, nil
+}
+
+func (mi *MultiInformer) Start(ctx context.Context) {
+	mi.factory.Start(ctx.Done())
+	cache.WaitForCacheSync(ctx.Done(), mi.synced...)
 	<-ctx.Done() // Block until context is cancelled
 }
 
-func getDeploymentName(obj any) string {
+func (mi *MultiInformer) GetIndexer(gvr schema.GroupVersionResource) cache.Indexer {
+	if inf, ok := mi.informers[gvr]; ok {
+		return inf.GetIndexer()
+	}
+	return nil
+}
+
+func (mi *MultiInformer) AddEventHandler(handler cache.ResourceEventHandlerFuncs) error {
+	for _, inf := range mi.informers {
+		_, err := inf.AddEventHandler(handler)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func getObjectName(obj any) string {
 	if d, ok := obj.(metav1.Object); ok {
 		return d.GetName()
 	}

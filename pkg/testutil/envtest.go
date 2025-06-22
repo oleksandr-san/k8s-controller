@@ -20,7 +20,9 @@ import (
 func SetupEnv(t *testing.T) (*envtest.Environment, *kubernetes.Clientset, func()) {
 	t.Helper()
 	ctx := context.Background()
-	env := &envtest.Environment{}
+	env := &envtest.Environment{
+		DownloadBinaryAssets: true,
+	}
 
 	cfg, err := env.Start()
 	require.NoError(t, err)
