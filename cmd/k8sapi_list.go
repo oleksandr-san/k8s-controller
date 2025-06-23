@@ -67,9 +67,7 @@ var k8sListCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		for _, obj := range resources.Items {
-			printr.PrintObj(&obj, os.Stdout)
-		}
+		printr.PrintObj(resources, os.Stdout)
 	},
 }
 
