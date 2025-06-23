@@ -22,11 +22,18 @@ var k8sListCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		gvr, err := resolveGVR(k8sConfigFlags, args[0])
+		restMapper, err := k8sConfigFlags.ToRESTMapper()
 		if err != nil {
+			log.Error().Msg("failed to create mapper")
+			os.Exit(1)
+		}
+
+		gvrs, err := resolveGVRs(restMapper, args[0])
+		if err != nil || len(gvrs) < 1 {
 			log.Error().Err(err).Msg("failed to resolve GVR")
 			os.Exit(1)
 		}
+		gvr := gvrs[0]
 
 		resourceClient, err := makeResourceClient(k8sConfigFlags, nil, gvr, "")
 		if err != nil {
@@ -67,9 +74,7 @@ var k8sListCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		for _, obj := range resources.Items {
-			printr.PrintObj(&obj, os.Stdout)
-		}
+		printr.PrintObj(resources, os.Stdout)
 	},
 }
 

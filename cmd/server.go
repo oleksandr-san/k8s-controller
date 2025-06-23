@@ -1,15 +1,23 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/oleksandr-san/k8s-controller/pkg/informer"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/valyala/fasthttp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/discovery/cached/memory"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/restmapper"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 const (
@@ -41,19 +49,71 @@ func loggingMiddleware(next fasthttp.RequestHandler) fasthttp.RequestHandler {
 	}
 }
 
+func handleRequest(ctx *fasthttp.RequestCtx) {
+	ctx.SetStatusCode(fasthttp.StatusOK)
+	ctx.SetBodyString("Welcome to the FastHTTP server!")
+}
+
 var serverCmd = &cobra.Command{
 	Use:   "server",
 	Short: "Start a FastHTTP server",
 	Run: func(cmd *cobra.Command, args []string) {
-		handler := func(ctx *fasthttp.RequestCtx) {
-			ctx.SetStatusCode(fasthttp.StatusOK)
-			ctx.SetBodyString("Welcome to the FastHTTP server!")
+		configureLogger(parseLogLevel(viper.GetString("log.level")))
+
+		resyncPeriod, err := time.ParseDuration(viper.GetString("app.resync-period"))
+		if err != nil {
+			log.Error().Err(err).Msg("failed to parse resync period")
+			os.Exit(1)
 		}
+
+		config, err := getKubeConfig(viper.GetString("kubeconfig"), viper.GetBool("in-cluster"))
+		if err != nil {
+			log.Error().Err(err).Msg("failed to create Kubernetes client")
+			os.Exit(1)
+		}
+		dc, err := discovery.NewDiscoveryClientForConfig(config)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to create disovery client")
+			os.Exit(1)
+		}
+
+		cached := memory.NewMemCacheClient(dc)
+		mapper := restmapper.NewShortcutExpander(
+			restmapper.NewDeferredDiscoveryRESTMapper(cached),
+			cached,
+			nil,
+		)
+
+		resources := viper.GetStringSlice("resources")
+		if len(resources) == 0 {
+			log.Error().Msg("no resources specified to watch")
+			os.Exit(1)
+		}
+		gvrs, err := resolveGVRs(mapper, resources...)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to resolve GVRs")
+			os.Exit(1)
+		}
+
+		log.Info().Strs("resources", resources).Msg("start multi-informer")
+		multiInformer, err := informer.NewMultiInformer(
+			config,
+			resyncPeriod,
+			gvrs,
+			viper.GetString("namespace"),
+			nil,
+		)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to create informer")
+			os.Exit(1)
+		}
+		ctx := context.Background()
+		go multiInformer.Start(ctx)
 
 		serverPort := viper.GetInt("app.port")
 		addr := fmt.Sprintf(":%d", serverPort)
 		log.Info().Msgf("Starting FastHTTP server on %s", addr)
-		if err := fasthttp.ListenAndServe(addr, loggingMiddleware(handler)); err != nil {
+		if err := fasthttp.ListenAndServe(addr, loggingMiddleware(handleRequest)); err != nil {
 			log.Error().Err(err).Msg("Error starting FastHTTP server")
 			os.Exit(1)
 		}
@@ -66,4 +126,33 @@ func init() {
 	f := serverCmd.Flags()
 	f.Int("port", 8080, "Port to run the server on")
 	viper.BindPFlag("app.port", f.Lookup("port"))
+
+	f.String("kubeconfig", "~/.kube/config", "Path to the kubeconfig file")
+	viper.BindPFlag("kubeconfig", f.Lookup("kubeconfig"))
+
+	f.Bool("in-cluster", false, "Use in-cluster Kubernetes config")
+	viper.BindPFlag("in-cluster", f.Lookup("in-cluster"))
+
+	f.String("namespace", metav1.NamespaceAll, "Namespace to watch")
+	viper.BindPFlag("namespace", f.Lookup("namespace"))
+
+	f.StringSlice("resources", []string{"deployments"}, "Resources to watch")
+	viper.BindPFlag("resources", f.Lookup("resources"))
+
+	f.String("resync", "30s", "Resync period")
+	viper.BindPFlag("app.resync-period", f.Lookup("resync"))
+}
+
+func getKubeConfig(kubeconfigPath string, inCluster bool) (*rest.Config, error) {
+	var config *rest.Config
+	var err error
+	if inCluster {
+		config, err = rest.InClusterConfig()
+	} else {
+		config, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return config, nil
 }

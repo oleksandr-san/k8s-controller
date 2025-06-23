@@ -38,11 +38,17 @@ var k8sDeleteCmd = &cobra.Command{
 		}
 
 		if len(args) > 1 {
-			gvr, err := resolveGVR(k8sConfigFlags, args[0])
+			mapper, err := k8sConfigFlags.ToRESTMapper()
+			if err != nil {
+				log.Error().Err(err).Msg("failed to create REST mapper")
+				os.Exit(1)
+			}
+			gvrs, err := resolveGVRs(mapper, args[0])
 			if err != nil {
 				log.Error().Err(err).Msg("failed to resolve GVR")
 				os.Exit(1)
 			}
+			gvr := gvrs[0]
 			names := args[1:]
 			if len(names) == 0 {
 				log.Error().Msg("no resource names provided")
