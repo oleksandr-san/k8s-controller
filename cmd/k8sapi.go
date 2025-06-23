@@ -135,7 +135,7 @@ func readObjects(paths []string) ([]*unstructured.Unstructured, error) {
 			r = f
 		}
 
-		d := yamlutil.NewYAMLOrJSONDecoder(r, bufSize) // streams & splits docs :contentReference[oaicite:4]{index=4}
+		d := yamlutil.NewYAMLOrJSONDecoder(r, bufSize)
 		for {
 			u := &unstructured.Unstructured{}
 			err := d.Decode(u)
