@@ -13,8 +13,10 @@ import (
 	"github.com/spf13/viper"
 	"github.com/valyala/fasthttp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -47,47 +49,71 @@ func loggingMiddleware(next fasthttp.RequestHandler) fasthttp.RequestHandler {
 	}
 }
 
+func handleRequest(ctx *fasthttp.RequestCtx) {
+	ctx.SetStatusCode(fasthttp.StatusOK)
+	ctx.SetBodyString("Welcome to the FastHTTP server!")
+}
+
 var serverCmd = &cobra.Command{
 	Use:   "server",
 	Short: "Start a FastHTTP server",
 	Run: func(cmd *cobra.Command, args []string) {
 		configureLogger(parseLogLevel(viper.GetString("log.level")))
 
-		config, err := getKubeConfig(viper.GetString("kubeconfig"), viper.GetBool("in-cluster"))
+		resyncPeriod, err := time.ParseDuration(viper.GetString("app.resync-period"))
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to create Kubernetes client")
+			log.Error().Err(err).Msg("failed to parse resync period")
 			os.Exit(1)
 		}
+
+		config, err := getKubeConfig(viper.GetString("kubeconfig"), viper.GetBool("in-cluster"))
+		if err != nil {
+			log.Error().Err(err).Msg("failed to create Kubernetes client")
+			os.Exit(1)
+		}
+		dc, err := discovery.NewDiscoveryClientForConfig(config)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to create disovery client")
+			os.Exit(1)
+		}
+
+		cached := memory.NewMemCacheClient(dc)
+		mapper := restmapper.NewShortcutExpander(
+			restmapper.NewDeferredDiscoveryRESTMapper(cached),
+			cached,
+			nil,
+		)
+
+		resources := viper.GetStringSlice("resources")
+		if len(resources) == 0 {
+			log.Error().Msg("no resources specified to watch")
+			os.Exit(1)
+		}
+		gvrs, err := resolveGVRs(mapper, resources...)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to resolve GVRs")
+			os.Exit(1)
+		}
+
+		log.Info().Strs("resources", resources).Msg("start multi-informer")
 		multiInformer, err := informer.NewMultiInformer(
 			config,
-			30*time.Second,
-			[]schema.GroupVersionResource{
-				{
-					Group:    "apps",
-					Version:  "v1",
-					Resource: "deployments",
-				},
-			},
+			resyncPeriod,
+			gvrs,
 			viper.GetString("namespace"),
 			nil,
 		)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to create informer")
+			log.Error().Err(err).Msg("failed to create informer")
 			os.Exit(1)
 		}
 		ctx := context.Background()
 		go multiInformer.Start(ctx)
 
-		handler := func(ctx *fasthttp.RequestCtx) {
-			ctx.SetStatusCode(fasthttp.StatusOK)
-			ctx.Path()
-			ctx.SetBodyString("Welcome to the FastHTTP server!")
-		}
-
 		serverPort := viper.GetInt("app.port")
 		addr := fmt.Sprintf(":%d", serverPort)
 		log.Info().Msgf("Starting FastHTTP server on %s", addr)
-		if err := fasthttp.ListenAndServe(addr, loggingMiddleware(handler)); err != nil {
+		if err := fasthttp.ListenAndServe(addr, loggingMiddleware(handleRequest)); err != nil {
 			log.Error().Err(err).Msg("Error starting FastHTTP server")
 			os.Exit(1)
 		}
@@ -112,6 +138,9 @@ func init() {
 
 	f.StringSlice("resources", []string{"deployments"}, "Resources to watch")
 	viper.BindPFlag("resources", f.Lookup("resources"))
+
+	f.String("resync", "30s", "Resync period")
+	viper.BindPFlag("app.resync-period", f.Lookup("resync"))
 }
 
 func getKubeConfig(kubeconfigPath string, inCluster bool) (*rest.Config, error) {

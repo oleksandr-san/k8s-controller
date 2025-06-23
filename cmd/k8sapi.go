@@ -40,32 +40,31 @@ func init() {
 	rootCmd.AddCommand(k8sAPICmd)
 }
 
-// ResolveGVR turns "deploy", "deployments", "deploy.apps", "deployments.v1.apps", etc.
+// resolveGVR turns "deploy", "deployments", "deploy.apps", "deployments.v1.apps", etc.
 // into a concrete GroupVersionResource, using live discovery data so it
 // works for CRDs as well.
-func resolveGVR(flags *genericclioptions.ConfigFlags, token string) (schema.GroupVersionResource, error) {
-	rm, err := flags.ToRESTMapper()
-	if err != nil {
-		return schema.GroupVersionResource{}, fmt.Errorf("create mapper: %w", err)
-	}
-
-	var guess schema.GroupVersionResource
-	if parts := strings.Split(token, "."); len(parts) > 1 {
-		// token like "deployments.v1.apps"
-		guess.Resource = parts[0]
-		guess.Version = parts[1]
-		if len(parts) > 2 {
-			guess.Group = strings.Join(parts[2:], ".")
+func resolveGVRs(mapper meta.RESTMapper, tokens ...string) (gvrs []schema.GroupVersionResource, err error) {
+	for _, token := range tokens {
+		var guess schema.GroupVersionResource
+		if parts := strings.Split(token, "."); len(parts) > 1 {
+			// token like "deployments.v1.apps"
+			guess.Resource = parts[0]
+			guess.Version = parts[1]
+			if len(parts) > 2 {
+				guess.Group = strings.Join(parts[2:], ".")
+			}
+		} else {
+			guess.Resource = token
 		}
-	} else {
-		guess.Resource = token
+
+		full, err := mapper.ResourceFor(guess)
+		if meta.IsNoMatchError(err) {
+			return gvrs, fmt.Errorf("unknown resource %q", token)
+		}
+		gvrs = append(gvrs, full)
 	}
 
-	full, err := rm.ResourceFor(guess)
-	if meta.IsNoMatchError(err) {
-		return schema.GroupVersionResource{}, fmt.Errorf("unknown resource %q", token)
-	}
-	return full, err
+	return gvrs, nil
 }
 
 func makeDynamicClient(flags *genericclioptions.ConfigFlags) (*dynamic.DynamicClient, error) {
