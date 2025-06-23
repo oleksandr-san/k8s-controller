@@ -9,14 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 
 	testutil "github.com/oleksandr-san/k8s-controller/pkg/testutil"
 )
 
-func TestStartDeploymentInformer(t *testing.T) {
-	_, clientset, cleanup := testutil.SetupEnv(t)
+func TestStartInformer(t *testing.T) {
+	env, _, cleanup := testutil.SetupEnv(t)
 	defer cleanup()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -29,13 +28,23 @@ func TestStartDeploymentInformer(t *testing.T) {
 	added := make(chan string, 2)
 
 	// Patch event handler for test
-	factory := informers.NewSharedInformerFactoryWithOptions(
-		clientset,
+	mi, err := NewMultiInformer(
+		env.Config,
 		30*time.Second,
-		informers.WithNamespace("default"),
+		[]schema.GroupVersionResource{
+			{
+				Group:    "apps",
+				Version:  "v1",
+				Resource: "deployments",
+			},
+		},
+		metav1.NamespaceAll,
+		nil,
 	)
-	informer := factory.Apps().V1().Deployments().Informer()
-	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	if err != nil {
+		t.Fatal(err)
+	}
+	mi.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj any) {
 			if d, ok := obj.(metav1.Object); ok {
 				added <- d.GetName()
@@ -45,8 +54,7 @@ func TestStartDeploymentInformer(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		factory.Start(ctx.Done())
-		factory.WaitForCacheSync(ctx.Done())
+		mi.Start(ctx)
 		<-ctx.Done()
 	}()
 
