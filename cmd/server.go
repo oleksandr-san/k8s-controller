@@ -278,7 +278,7 @@ func init() {
 	f.Bool("in-cluster", false, "Use in-cluster Kubernetes config")
 	viper.BindPFlag("in-cluster", f.Lookup("in-cluster"))
 
-	f.String("namespace", metav1.NamespaceAll, "Namespace to watch")
+	f.StringP("namespace", "n", metav1.NamespaceAll, "Namespace to watch")
 	viper.BindPFlag("namespace", f.Lookup("namespace"))
 
 	f.StringSlice("resources", []string{"deployments"}, "Resources to watch")

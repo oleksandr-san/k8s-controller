@@ -19,6 +19,14 @@ type DeploymentReconciler struct {
 
 func (r *DeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log.Info().Msgf("Reconciling Deployment: %s/%s", req.Namespace, req.Name)
+
+	deploy := &appsv1.Deployment{}
+	err := r.Client.Get(ctx, req.NamespacedName, deploy)
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to get Deployment: %s/%s", req.Namespace, req.Name)
+	} else {
+		log.Info().Msgf("Got Deployment: %s/%s", req.Namespace, req.Name)
+	}
 	return ctrl.Result{}, nil
 }
 
