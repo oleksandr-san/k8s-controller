@@ -26,6 +26,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 const (
@@ -234,7 +235,12 @@ var serverCmd = &cobra.Command{
 		go multiInformer.Start(ctx)
 
 		// Start controller-runtime manager and controller
-		mgr, err := ctrlruntime.NewManager(config, manager.Options{})
+		mgr, err := ctrlruntime.NewManager(config, manager.Options{
+			LeaderElection:          viper.GetBool("enable-leader-election"),
+			LeaderElectionID:        "k8s-controller-tutorial-leader-election",
+			LeaderElectionNamespace: viper.GetString("leader-election-namespace"),
+			Metrics:                 metricserver.Options{BindAddress: fmt.Sprintf(":%d", viper.GetInt("app.metrics-port"))},
+		})
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to create controller-runtime manager")
 			os.Exit(1)
@@ -286,6 +292,15 @@ func init() {
 
 	f.String("resync", "30s", "Resync period")
 	viper.BindPFlag("app.resync-period", f.Lookup("resync"))
+
+	f.Bool("enable-leader-election", true, "Enable leader election for controller manager")
+	viper.BindPFlag("enable-leader-election", f.Lookup("enable-leader-election"))
+
+	f.String("leader-election-namespace", "default", "Namespace for leader election")
+	viper.BindPFlag("leader-election-namespace", f.Lookup("leader-election-namespace"))
+
+	f.Int("metrics-port", 8081, "Port for controller manager metrics")
+	viper.BindPFlag("app.metrics-port", f.Lookup("metrics-port"))
 }
 
 func getKubeConfig(kubeconfigPath string, inCluster bool) (*rest.Config, error) {
