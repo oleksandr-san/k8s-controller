@@ -53,13 +53,13 @@ func NewMultiInformer(
 
 	mi.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			log.Info().Msgf("Object added: %s", getObjectName(obj))
+			log.Debug().Msgf("Object added: %s", getObjectName(obj))
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			log.Info().Msgf("Object updated: %s", getObjectName(newObj))
+			log.Debug().Msgf("Object updated: %s", getObjectName(newObj))
 		},
 		DeleteFunc: func(obj interface{}) {
-			log.Info().Msgf("Object deleted: %s", getObjectName(obj))
+			log.Debug().Msgf("Object deleted: %s", getObjectName(obj))
 		},
 	})
 
@@ -68,8 +68,12 @@ func NewMultiInformer(
 
 func (mi *MultiInformer) Start(ctx context.Context) {
 	mi.factory.Start(ctx.Done())
-	cache.WaitForCacheSync(ctx.Done(), mi.synced...)
+	mi.WaitForCacheSync(ctx)
 	<-ctx.Done() // Block until context is cancelled
+}
+
+func (mi *MultiInformer) WaitForCacheSync(ctx context.Context) bool {
+	return cache.WaitForCacheSync(ctx.Done(), mi.synced...)
 }
 
 func (mi *MultiInformer) GetIndexer(gvr schema.GroupVersionResource) cache.Indexer {
