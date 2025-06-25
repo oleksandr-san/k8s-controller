@@ -86,6 +86,9 @@ Server options:
 - `--kubeconfig`: Path to kubeconfig file (default: ~/.kube/config)
 - `--in-cluster`: Use in-cluster Kubernetes configuration
 - `--log-level`: Set logging level (trace, debug, info, warn, error)
+- `--enable-leader-election`: Enable leader election for controller manager (default: true)
+- `--leader-election-namespace`: Namespace for leader election (default: default)
+- `--metrics-port`: Port for controller manager metrics (default: 8081)
 
 ### Kubernetes API Operations
 
@@ -113,6 +116,9 @@ The application supports configuration via environment variables:
 - `LOG_LEVEL`: Set logging level (trace, debug, info, warn, error)
 - `APP_PORT`: Server port
 - `KUBECONFIG`: Path to kubeconfig file
+- `ENABLE_LEADER_ELECTION`: Enable leader election for controller manager
+- `LEADER_ELECTION_NAMESPACE`: Namespace for leader election
+- `APP_METRICS_PORT`: Port for controller manager metrics
 
 ### Logging
 
@@ -199,6 +205,8 @@ Key configuration options in `values.yaml`:
 - `ingress.enabled`: Enable ingress
 - `resources`: Resource limits and requests
 - `autoscaling.enabled`: Enable horizontal pod autoscaling
+- `leaderElection.enabled`: Enable leader election for controller manager
+- `leaderElection.namespace`: Namespace for leader election
 
 ## API Endpoints
 
