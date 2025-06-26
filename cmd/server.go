@@ -245,7 +245,7 @@ var serverCmd = &cobra.Command{
 			log.Error().Err(err).Msg("Failed to create controller-runtime manager")
 			os.Exit(1)
 		}
-		if err := ctrl.AddFrontendController(mgr); err != nil {
+		if err := ctrl.AddDeploymentController(mgr); err != nil {
 			log.Error().Err(err).Msg("Failed to add deployment controller")
 			os.Exit(1)
 		}
