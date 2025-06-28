@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/oleksandr-san/k8s-controller/pkg/ctrl"
 	"github.com/oleksandr-san/k8s-controller/pkg/informer"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -23,6 +24,8 @@ import (
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 const (
@@ -230,6 +233,24 @@ var serverCmd = &cobra.Command{
 		ctx := context.Background()
 		go multiInformer.Start(ctx)
 
+		// Start controller-runtime manager and controller
+		mgr, err := ctrlruntime.NewManager(config, manager.Options{})
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to create controller-runtime manager")
+			os.Exit(1)
+		}
+		if err := ctrl.AddDeploymentController(mgr); err != nil {
+			log.Error().Err(err).Msg("Failed to add deployment controller")
+			os.Exit(1)
+		}
+		go func() {
+			log.Info().Msg("Starting controller-runtime manager...")
+			if err := mgr.Start(cmd.Context()); err != nil {
+				log.Error().Err(err).Msg("Manager exited with error")
+				os.Exit(1)
+			}
+		}()
+
 		srv := &server{
 			mi:     multiInformer,
 			mapper: mapper,
@@ -257,7 +278,7 @@ func init() {
 	f.Bool("in-cluster", false, "Use in-cluster Kubernetes config")
 	viper.BindPFlag("in-cluster", f.Lookup("in-cluster"))
 
-	f.String("namespace", metav1.NamespaceAll, "Namespace to watch")
+	f.StringP("namespace", "n", metav1.NamespaceAll, "Namespace to watch")
 	viper.BindPFlag("namespace", f.Lookup("namespace"))
 
 	f.StringSlice("resources", []string{"deployments"}, "Resources to watch")
